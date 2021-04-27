@@ -17,12 +17,24 @@ use tokio_util::codec::{FramedWrite, LinesCodec};
 /// Schema conversion arguments.
 #[derive(Debug, StructOpt)]
 pub(crate) struct Opt {
-    /// One of `error`, `overwrite`, `append` or `upsert-on:COL`.
-    #[structopt(long = "if-exists", default_value = "error")]
-    if_exists: IfExists,
+    /// One of `error`, `overwrite`, `append` or `upsert-on:COL` [default: error].
+    #[structopt(long = "if-exists", conflicts_with_all = &["overwrite", "append", "upsert_on"])]
+    if_exists: Option<IfExists>,
+
+    /// Short for `--if-exists=overwrite`.
+    #[structopt(short = "F", conflicts_with_all = &["if_exists", "append", "upsert_on"])]
+    overwrite: bool,
+
+    /// Short for `--if-exists=append`.
+    #[structopt(short = "A", conflicts_with_all = &["if_exists", "overwrite", "upsert_on"])]
+    append: bool,
+
+    /// Short for `--if-exists=upsert-on:COL`.
+    #[structopt(short = "U", value_names = &["COL"], conflicts_with_all = &["if_exists", "overwrite", "append"])]
+    upsert_on: Option<String>,
 
     /// The schema to use (defaults to input table schema).
-    #[structopt(long = "schema")]
+    #[structopt(long = "schema", short = "s")]
     schema: Option<UnparsedLocator>,
 
     /// Temporary directories, cloud storage buckets, datasets to use during
@@ -65,6 +77,24 @@ pub(crate) struct Opt {
     to_locator: UnparsedLocator,
 }
 
+impl Opt {
+    /// Parse the different ways of specifying `--if-exists`.
+    fn if_exists(&self) -> IfExists {
+        if let Some(if_exists) = &self.if_exists {
+            if_exists.to_owned()
+        } else if self.overwrite {
+            IfExists::Overwrite
+        } else if self.append {
+            IfExists::Append
+        } else if let Some(upsert_on) = &self.upsert_on {
+            let cols = upsert_on.split(',').map(str::to_owned).collect();
+            IfExists::Upsert(cols)
+        } else {
+            IfExists::Error
+        }
+    }
+}
+
 /// Perform our schema conversion.
 pub(crate) async fn run(
     ctx: Context,
@@ -72,6 +102,7 @@ pub(crate) async fn run(
     enable_unstable: bool,
     opt: Opt,
 ) -> Result<()> {
+    let if_exists = opt.if_exists();
     let schema_opt = opt.schema.map(|s| s.parse(enable_unstable)).transpose()?;
     let from_locator = opt.from_locator.parse(enable_unstable)?;
     let to_locator = opt.to_locator.parse(enable_unstable)?;
@@ -99,7 +130,7 @@ pub(crate) async fn run(
 
     // Build our destination arguments.
     let to_args = DriverArguments::from_cli_args(&opt.to_args)?;
-    let dest_args = DestinationArguments::new(to_args, opt.if_exists);
+    let dest_args = DestinationArguments::new(to_args, if_exists);
 
     // Can we short-circuit this particular copy using special features of the
     // the source and destination, or do we need to pull the data down to the

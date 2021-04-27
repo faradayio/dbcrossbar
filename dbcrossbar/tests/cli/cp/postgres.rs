@@ -198,7 +198,9 @@ fn cp_pg_append_upsert_legacy_json() {
         .cmd()
         .args(&[
             "cp",
-            "--if-exists=upsert-on:id",
+            // Also test the short form of `--if-exists=upsert-on:id`.
+            "-U",
+            "id",
             &format!("--schema=postgres-sql:{}", schema.display()),
             &format!("csv:{}", src.display()),
             &pg_table,
