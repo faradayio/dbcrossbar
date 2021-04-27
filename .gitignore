@@ -1,3 +1,4 @@
 /target
 *.rs.bak
 set-up-dbcrossbar-env
+.idea
